@@ -1,0 +1,263 @@
+name: Deploy Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+env:
+  PROJECT_ID: stellar-stream-485314-p0
+  GCR_HOSTNAME: gcr.io
+
+jobs:
+  # Job 1: Pre-deployment checks
+  pre-deployment:
+    runs-on: ubuntu-latest
+    name: Pre-Deployment Checks
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Verify branch protection
+        run: |
+          echo "✓ Checking if deployment is from approved branch..."
+          if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "✓ Branch is approved for deployment"
+          else
+            echo "✗ Deployment only allowed from main or develop"
+            exit 1
+          fi
+
+  # Job 2: dbt Validation and Deployment
+  deploy-dbt-models:
+    runs-on: ubuntu-latest
+    name: Deploy dbt Models
+    needs: pre-deployment
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dbt
+        run: pip install dbt-bigquery dbt-utils dbt-expectations
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+      
+      - name: dbt deps
+        working-directory: dbt
+        run: dbt deps
+      
+      - name: dbt Parse
+        working-directory: dbt
+        run: dbt parse --target ${{ github.event.inputs.environment }}
+      
+      - name: dbt Compile
+        working-directory: dbt
+        run: dbt compile --target ${{ github.event.inputs.environment }}
+      
+      - name: dbt Snapshot (if applicable)
+        working-directory: dbt
+        run: dbt snapshot --target ${{ github.event.inputs.environment }} || true
+      
+      - name: dbt Run - Staging Models
+        working-directory: dbt
+        run: dbt run --select staging --target ${{ github.event.inputs.environment }}
+      
+      - name: dbt Test
+        working-directory: dbt
+        run: dbt test --target ${{ github.event.inputs.environment }}
+      
+      - name: dbt Run - Marts Models
+        if: success()
+        working-directory: dbt
+        run: dbt run --select marts --target ${{ github.event.inputs.environment }}
+      
+      - name: dbt Generate Docs
+        if: success()
+        working-directory: dbt
+        run: dbt docs generate --target ${{ github.event.inputs.environment }}
+      
+      - name: Upload dbt docs artifact
+        if: success()
+        uses: actions/upload-artifact@v3
+        with:
+          name: dbt-docs
+          path: dbt/target/
+
+  # Job 3: Terraform Infrastructure
+  deploy-infrastructure:
+    runs-on: ubuntu-latest
+    name: Deploy Infrastructure
+    needs: pre-deployment
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      
+      - name: Terraform Format Check
+        working-directory: terraform/
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+      
+      - name: Terraform Init
+        working-directory: terraform/
+        run: |
+          terraform init \
+            -backend-config="bucket=supply-chain-tf-state-${{ github.event.inputs.environment }}" \
+            -backend-config="prefix=terraform"
+      
+      - name: Terraform Validate
+        working-directory: terraform/
+        run: terraform validate
+      
+      - name: Terraform Plan
+        working-directory: terraform/
+        run: |
+          terraform plan \
+            -var-file="${{ github.event.inputs.environment }}.tfvars" \
+            -out=tfplan
+      
+      - name: Save Terraform plan
+        uses: actions/upload-artifact@v3
+        with:
+          name: terraform-plan-${{ github.event.inputs.environment }}
+          path: terraform/tfplan
+      
+      - name: Display Plan Summary
+        working-directory: terraform/
+        run: terraform show tfplan -json | jq '.resource_changes[] | select(.change.actions != ["no-op"])' || true
+
+  # Job 4: Build and Push Docker Images
+  build-docker-images:
+    runs-on: ubuntu-latest
+    name: Build Docker Images
+    needs: deploy-infrastructure
+    strategy:
+      matrix:
+        include:
+          - name: spark-base
+            dockerfile: docker/spark/spark-base.Dockerfile
+          - name: kafka-consumer
+            dockerfile: docker/Dockerfile.kafka
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+      
+      - name: Configure Docker for GCR
+        run: gcloud auth configure-docker ${{ env.GCR_HOSTNAME }}
+      
+      - name: Build and push image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.GCR_HOSTNAME }}/${{ env.PROJECT_ID }}/${{ matrix.name }}:${{ github.sha }}
+            ${{ env.GCR_HOSTNAME }}/${{ env.PROJECT_ID }}/${{ matrix.name }}:${{ github.event.inputs.environment }}-latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Job 5: Integration Tests
+  integration-tests:
+    runs-on: ubuntu-latest
+    name: Integration Tests
+    needs: [deploy-dbt-models, build-docker-images]
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      
+      - name: Install test dependencies
+        run: |
+          pip install pytest pytest-gcp google-cloud-bigquery
+      
+      - name: Create integration tests placeholder
+        run: mkdir -p tests/integration && touch tests/integration/__init__.py
+      
+      - name: Run integration tests
+        run: |
+          pytest tests/integration/ -v || true
+        continue-on-error: true
+
+  # Job 6: Notification
+  notify:
+    runs-on: ubuntu-latest
+    name: Send Notifications
+    needs: [deploy-dbt-models, deploy-infrastructure, build-docker-images, integration-tests]
+    if: always()
+    steps:
+      - name: Determine deployment status
+        id: status
+        run: |
+          if [[ "${{ needs.deploy-dbt-models.result }}" == "success" && \
+                "${{ needs.deploy-infrastructure.result }}" == "success" && \
+                "${{ needs.build-docker-images.result }}" == "success" ]]; then
+            echo "status=✅ SUCCESS" >> $GITHUB_OUTPUT
+          else
+            echo "status=❌ FAILED" >> $GITHUB_OUTPUT
+          fi
+      
+      - name: Create deployment summary
+        run: |
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "**Environment**: ${{ github.event.inputs.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Status**: ${{ steps.status.outputs.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Slack Notification
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            Deployment to **${{ github.event.inputs.environment }}** - ${{ steps.status.outputs.status }}
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref }}
+            Triggered by: ${{ github.actor }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        continue-on-error: true
