@@ -1,0 +1,25 @@
+supply_chain:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: service-account
+      project: stellar-stream-485314-p0
+      dataset: supply_chain_dbt_dev
+      keyfile: /Users/liceline/Documents/study_material/data_engineer/project_study/supply_chain/supply_chain_de_study/keys/gcp-cred.json
+      threads: 4
+      timeout_seconds: 300
+      location: europe-west4
+      priority: interactive
+      retries: 1
+    prod:
+      type: bigquery
+      method: service-account
+      project: stellar-stream-485314-p0
+      dataset: supply_chain_dbt_prod
+      keyfile: /Users/liceline/Documents/study_material/data_engineer/project_study/supply_chain/supply_chain_de_study/keys/gcp-cred.json
+      threads: 8
+      timeout_seconds: 300
+      location: europe-west4
+      priority: batch
+      retries: 3

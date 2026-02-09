@@ -1,0 +1,73 @@
+version: "3.6"
+
+volumes:
+  spark-logs:
+    driver: local
+networks:
+  default:
+    name: ${PROJECT_NAME}-network
+    external: true
+
+services:
+
+  jupyterlab:
+    build:
+      context: .
+      dockerfile: jupyterlab.Dockerfile
+    image: supply-chain-jupyterlab
+    container_name: ${PROJECT_NAME}-jupyterlab
+    volumes:
+      - /Users/liceline/Documents/study_material/data_engineer/project_study/supply_chain/supply_chain_de_study:/opt/workspace
+    environment:
+      - PROJECT_ROOT=/opt/workspace
+      - GOOGLE_APPLICATION_CREDENTIALS=/opt/workspace/keys/gcp-cred.json
+      - GCP_PROJECT_ID=stellar-stream-485314-p0
+      - GCS_BUCKET=supply-chain-data-bucket-485314
+      - BQ_DATASET=supply_chain_bigquery
+      - BQ_REGION=europe-west4
+    ports:
+      - 8888:8888
+
+  spark-master:
+    build:
+      context: .
+      dockerfile: spark-master.Dockerfile
+    image: supply-chain-spark-master
+    container_name: ${PROJECT_NAME}-spark-master
+    volumes:
+      - /Users/liceline/Documents/study_material/data_engineer/project_study/supply_chain/supply_chain_de_study:/opt/workspace
+      - spark-logs:/opt/spark-logs
+    environment:
+      SPARK_LOCAL_IP: spark-master
+      PROJECT_ROOT: /opt/workspace
+      GOOGLE_APPLICATION_CREDENTIALS: /opt/workspace/keys/gcp-cred.json
+      GCP_PROJECT_ID: stellar-stream-485314-p0
+      GCS_BUCKET: supply-chain-data-bucket-485314
+      BQ_DATASET: supply_chain_bigquery
+      BQ_REGION: europe-west4
+    ports:
+      - 18080:8080
+      - 7077:7077
+    
+  spark-worker-1:
+    build:
+      context: .
+      dockerfile: spark-worker.Dockerfile
+    image: supply-chain-spark-worker
+    container_name: ${PROJECT_NAME}-spark-worker-1
+    depends_on:
+      - spark-master
+    volumes:
+      - /Users/liceline/Documents/study_material/data_engineer/project_study/supply_chain/supply_chain_de_study:/opt/workspace
+      - spark-logs:/opt/spark-logs
+    environment:
+      - SPARK_WORKER_CORES=2
+      - SPARK_WORKER_MEMORY=4g
+      - PROJECT_ROOT=/opt/workspace
+      - GOOGLE_APPLICATION_CREDENTIALS=/opt/workspace/keys/gcp-cred.json
+      - GCP_PROJECT_ID=stellar-stream-485314-p0
+      - GCS_BUCKET=supply-chain-data-bucket-485314
+      - BQ_DATASET=supply_chain_bigquery
+      - BQ_REGION=europe-west4
+    ports:
+      - 8083:8081

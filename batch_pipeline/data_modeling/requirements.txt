@@ -1,0 +1,9 @@
+pyspark>=3.5.0
+google-cloud-storage>=2.10.0
+google-cloud-bigquery>=3.11.0
+pandas>=2.0.0
+pyarrow>=13.0.0
+
+# 注意：需要 Java 11+ 才能运行
+# 在 macOS 上: brew install openjdk@17
+# 设置 PATH: export PATH="/opt/homebrew/opt/openjdk@17/bin:$PATH"

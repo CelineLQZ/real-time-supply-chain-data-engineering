@@ -1,0 +1,46 @@
+# dbt Cloud Configuration (仅用于 dbt Cloud 云端运行)
+# 
+# 说明：
+# -----
+# 这个文件只在你使用 dbt Cloud 进行远程运行时需要
+# 包含了：
+# - Cloud API Token (用于云端认证)
+# - Project ID (359727)
+# - Account ID (252589)
+# 
+# 本地运行配置：
+# ============
+# 对于本地开发，使用 profiles.yml 配置文件
+# 通过 ~/.dbt/profiles.yml 或本目录下的 profiles.yml 指定 BigQuery 连接
+# 
+# 使用本地配置运行 dbt：
+# -----
+# 1. 设置 GOOGLE_APPLICATION_CREDENTIALS 环境变量指向 GCP 凭证
+# 2. 设置 DBT_PROFILES_DIR=~/.dbt 或当前 dbt 项目目录
+# 3. 运行命令:
+#    export DBT_PROFILES_DIR=~/.dbt
+#    export GOOGLE_APPLICATION_CREDENTIALS=/path/to/gcp-cred.json
+#    dbt run
+# 
+# 云端与本地的主要差异：
+# ====================
+# Cloud:  使用 dbt_cloud.yml 中的 token 认证
+# Local:  使用 GCP 服务账号 JSON 密钥认证
+#
+# 不建议在版本控制中提交包含真实 token 的 dbt_cloud.yml
+# 该文件中的 token 已被替换示例值
+
+version: "1"
+# context:
+#   active-host: "cloud.getdbt.com"
+#   active-project: "359727"
+# projects:
+#   - project-name: "Analytics"
+#     project-id: "359727"
+#     account-name: "supply_chain_finance"
+#     account-id: "252589"
+#     account-host: "cloud.getdbt.com"
+#     token-name: "cloud-cli-xxxxx"
+#     token-value: "dbtu_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+

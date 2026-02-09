@@ -1,0 +1,89 @@
+# 敏感信息 - 绝对不要上传
+google-cred.json
+gcp-cred.json
+keys/*.json
+.env
+.env.local
+*.pem
+*.key
+credentials.json
+secrets/
+
+# Python 相关
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+.project
+.pydevproject
+
+# 大数据文件 - 不要上传（git LFS 或手动下载）
+*.csv
+*.parquet
+*.parquet.snappy
+data/raw_streaming/
+data/transformed/
+data/backup/
+
+# Terraform
+*.tfstate
+*.tfstate.*
+*.tfvars
+.terraform/
+.terraform.lock.hcl
+crash.log
+override.tf
+override.tf.json
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# 日志和临时文件
+*.log
+logs/
+*.tmp
+temp/
+checkpoint/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# 数据库
+*.db
+*.sqlite
+*.sqlite3
+mage.db
+
+# 操作系统
+.DS_Store
+Thumbs.db
